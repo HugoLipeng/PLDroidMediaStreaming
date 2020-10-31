@@ -35,4 +35,7 @@ dependencies {
         // 推流 SDK jar 包，为推流 SDK 必须依赖的库
         implementation files('libs/pldroid-media-streaming-3.0.1.jar')
     }
+
+    api 'com.github.bumptech.glide:glide:3.8.0'
+
 }

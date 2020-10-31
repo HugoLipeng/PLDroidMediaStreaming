@@ -236,7 +236,7 @@ public class EncodingConfigFragment extends ConfigFragment {
             }
 
             // size
-            encodingConfig.mIsVideoSizePreset = ((RadioButton) root.findViewById(R.id.video_size_preset)).isChecked();
+            encodingConfig.mIsVideoSizePreset = false;//((RadioButton) root.findViewById(R.id.video_size_preset)).isChecked();
             if (encodingConfig.mIsVideoSizePreset) {
                 Spinner presetSpinner = (Spinner) root.findViewById(R.id.video_size_presets);
                 encodingConfig.mVideoSizePreset = presetSpinner.getSelectedItemPosition();

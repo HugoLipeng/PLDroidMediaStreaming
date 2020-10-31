@@ -13,6 +13,9 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
+import android.os.Message;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -21,6 +24,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageSwitcher;
 import android.widget.ImageView;
 import android.widget.Toast;
 
@@ -53,6 +57,8 @@ import com.qiniu.pili.droid.streaming.demo.ui.RotateLayout;
 import com.qiniu.pili.droid.streaming.demo.utils.Cache;
 import com.qiniu.pili.droid.streaming.demo.utils.Config;
 import com.qiniu.pili.droid.streaming.demo.utils.Util;
+import com.qiniu.pili.droid.streaming.demo.view.OnWaterListener;
+import com.qiniu.pili.droid.streaming.demo.view.WaterHandler;
 import com.qiniu.pili.droid.streaming.microphone.AudioMixer;
 import com.qiniu.pili.droid.streaming.microphone.OnAudioMixListener;
 
@@ -66,7 +72,8 @@ import java.util.List;
 
 public class AVStreamingActivity extends Activity implements
         CameraPreviewFrameView.Listener,
-        ControlFragment.OnEventClickedListener {
+        ControlFragment.OnEventClickedListener,
+        OnWaterListener{
     private static final String TAG = "AVStreamingActivity";
 
     private RotateLayout mRotateLayout;
@@ -80,6 +87,7 @@ public class AVStreamingActivity extends Activity implements
     private boolean mIsPlayingback = false;
     private boolean mAudioStereoEnable = false;
     private boolean mIsStreaming = false;
+    private boolean mIsPauseStream = false;
 
     private volatile boolean mIsSupportTorch = false;
 
@@ -123,6 +131,9 @@ public class AVStreamingActivity extends Activity implements
     private int mTimes = 0;
     private boolean mIsPictureStreaming = false;
 
+    private WaterHandler mWaterHandler;
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -140,12 +151,18 @@ public class AVStreamingActivity extends Activity implements
         handlerThread.start();
         mSubThreadHandler = new Handler(handlerThread.getLooper());
 
+        mWaterHandler = new WaterHandler(handlerThread.getLooper());
+        mWaterHandler.init(this,mEncodingConfig.mVideoSizeCustomWidth,mEncodingConfig.mVideoSizeCustomHeight);
+        mWaterHandler.setWaterListener(this);
+        mWaterHandler.start();
+
+//        mHandler.sendEmptyMessageDelayed(0,0);
         // 初始化视图控件
         initView();
         // 初始化 CameraStreamingSetting，CameraStreamingSetting 相关配置可参考 https://developer.qiniu.com/pili/sdk/3719/PLDroidMediaStreaming-function-using#2
         initCameraStreamingSetting();
         // 初始化 WatermarkSetting，WatermarkSetting 相关配置可参考 https://developer.qiniu.com/pili/sdk/3719/PLDroidMediaStreaming-function-using#5
-        initWatermarkSetting();
+//        initWatermarkSetting();
         // 初始化 StreamingProfile，StreamingProfile 为推流相关的配置类，详情可参考 https://developer.qiniu.com/pili/sdk/3719/PLDroidMediaStreaming-function-using#4
         initEncodingProfile();
         // 初始化 MediaStreamingManager，使用姿势可参考 https://developer.qiniu.com/pili/sdk/3719/PLDroidMediaStreaming-function-using#6
@@ -214,7 +231,7 @@ public class AVStreamingActivity extends Activity implements
 
         // 初始化推流控制面板
         mControlFragment = new ControlFragment();
-        Bundle bundle = new Bundle();
+        final Bundle bundle = new Bundle();
         bundle.putBoolean(ControlFragment.KEY_BEAUTY_ON, isNeedFB);
         bundle.putBoolean(ControlFragment.KEY_ENCODE_ORIENTATION, isEncOrientationPort);
         bundle.putBoolean(ControlFragment.KEY_HW_VIDEO_ENCODE_TYPE, isHwVideoEncodeType());
@@ -223,6 +240,17 @@ public class AVStreamingActivity extends Activity implements
         FragmentTransaction ft = getFragmentManager().beginTransaction();
         ft.add(R.id.control_fragment_container, mControlFragment);
         ft.commit();
+
+        Log.w(TAG,"video size:"+mEncodingConfig.mVideoSizeCustomWidth+"/"+mEncodingConfig.mVideoSizeCustomHeight);
+    }
+
+    public void drawWater(Bitmap bitmap){
+        WatermarkSetting  mWatermarkSetting = new WatermarkSetting(this);
+        mWatermarkSetting.setResourceBitmap(bitmap);
+        mWatermarkSetting.setInJustDecodeBoundsEnabled(false);
+        mWatermarkSetting.setLocation(WatermarkSetting.WATERMARK_LOCATION.NORTH_WEST);
+        mWatermarkSetting.setCustomSize(1920,1080);
+        mMediaStreamingManager.updateWatermarkSetting(mWatermarkSetting);
     }
 
     /**
@@ -350,10 +378,10 @@ public class AVStreamingActivity extends Activity implements
      * 仅支持 32 位 png (ARGB)
      */
     private void initWatermarkSetting() {
-        if (!mEncodingConfig.mIsWatermarkEnabled) {
-            return;
-        }
-        mWatermarkSetting = new WatermarkSetting(this);
+//        if (!mEncodingConfig.mIsWatermarkEnabled) {
+//            return;
+//        }
+        WatermarkSetting   mWatermarkSetting = new WatermarkSetting(this);
         mWatermarkSetting.setResourceId(R.drawable.qiniu_logo);
         mWatermarkSetting.setAlpha(mEncodingConfig.mWatermarkAlpha);
         mWatermarkSetting.setSize(mEncodingConfig.mWatermarkSize);
@@ -365,6 +393,7 @@ public class AVStreamingActivity extends Activity implements
         } else {
             mWatermarkSetting.setCustomPosition(mEncodingConfig.mWatermarkLocationCustomX, mEncodingConfig.mWatermarkLocationCustomY);
         }
+        mMediaStreamingManager.updateWatermarkSetting(mWatermarkSetting);
     }
 
     /**
@@ -1134,6 +1163,13 @@ public class AVStreamingActivity extends Activity implements
         }
     };
 
+    @Override
+    public void onDrawWater(Bitmap water) {
+        if (mMediaStreamingManager!=null){
+            drawWater(water);
+        }
+    }
+
     /**
      * 在图片推流过程中切换图片，仅供 demo 演示，您可以根据产品定义自行实现
      */
@@ -1364,4 +1400,25 @@ public class AVStreamingActivity extends Activity implements
                     }
                 }).show();
     }
+
+
+
+
+  Handler mHandler = new Handler(){
+      @Override
+      public void handleMessage(@NonNull Message msg) {
+          super.handleMessage(msg);
+          switch (msg.what){
+              case 0:
+                  initWatermarkSetting();
+                  mHandler.sendEmptyMessageDelayed(0,100);
+                  break;
+              default:
+                  break;
+          }
+      }
+  };
+
+
+
 }
